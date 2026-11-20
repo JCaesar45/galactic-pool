@@ -1,0 +1,10 @@
+import { cp, mkdir, rm, readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+await rm('dist', { recursive: true, force: true });
+await mkdir('dist', { recursive: true });
+await cp('public', 'dist', { recursive: true });
+const source = await readFile('netlify/functions/game.ts', 'utf8');
+const syntax = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: source, encoding: 'utf8' });
+if (syntax.status !== 0) throw new Error(syntax.stderr || 'Function syntax check failed');
+if (!source.includes("from '@netlify/blobs'") || !source.includes("consistency: 'strong'") || !source.includes('onlyIfMatch')) throw new Error('Function is missing the required Netlify Blobs consistency or conditional-write configuration.');
+console.log('Production static build and Netlify Function source/package checks passed.');
