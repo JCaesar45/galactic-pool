@@ -1,42 +1,433 @@
 const $ = (id) => document.getElementById(id);
-const API = '/.netlify/functions/game';
-const playerId = sessionStorage.getItem('galacticPlayerId') || crypto.randomUUID();
-sessionStorage.setItem('galacticPlayerId', playerId);
-let game = null, etag = null, poller = null, dragging = false, dragStart = null, dragNow = null;
-let balls = [], animating = false;
-const canvas = $('table'), ctx = canvas.getContext('2d');
-const W = 1000, H = 540, bounds = { l: 66, r: 934, t: 66, b: 474 }, R = 13;
-const colors = ['#f7df42','#3c8fe8','#e84b50','#8c56d9','#f28c36','#42c7a2','#b84d9b','#25252d','#f4f0e9','#e9bb39','#4c86d7','#d84b50','#8d58d1','#e88738','#45b99a'];
-const say = (id, msg) => $(id).textContent = msg;
-const code = () => Math.random().toString(36).slice(2,8).toUpperCase();
-function setupRack(){ balls=[]; const cue={id:0,x:260,y:270,vx:0,vy:0,color:'#fff',active:true}; balls.push(cue); let n=1; for(let row=0;row<5;row++) for(let col=0;col<=row;col++){balls.push({id:n,x:690+row*24,y:270+(col-row/2)*28,vx:0,vy:0,color:colors[(n-1)%colors.length],active:true});n++;} draw(); }
-function draw(){ctx.clearRect(0,0,W,H);ctx.fillStyle='#4a205f';roundRect(ctx,14,14,W-28,H-28,28);ctx.fill();ctx.fillStyle='#176b58';roundRect(ctx,42,42,W-84,H-84,20);ctx.fill();ctx.strokeStyle='#8cdbb9';ctx.lineWidth=3;ctx.strokeRect(54,54,W-108,H-108);ctx.fillStyle='#080817';[[42,42],[500,38],[958,42],[42,498],[500,502],[958,498]].forEach(([x,y])=>{ctx.beginPath();ctx.arc(x,y,27,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#c5a4ff';ctx.lineWidth=3;ctx.stroke();});
- for(const b of balls){if(!b.active)continue;ctx.beginPath();ctx.arc(b.x,b.y,R,0,Math.PI*2);ctx.fillStyle=b.color;ctx.fill();ctx.strokeStyle='#ffffff99';ctx.lineWidth=2;ctx.stroke();if(b.id){ctx.beginPath();ctx.arc(b.x,b.y,5,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.fillStyle='#151020';ctx.font='bold 8px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(b.id,b.x,b.y);}}
- const cue=balls[0];if(cue?.active&&!animating){ctx.beginPath();ctx.arc(cue.x,cue.y,4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}
- if(dragging&&dragStart&&dragNow){ctx.beginPath();ctx.moveTo(balls[0].x,balls[0].y);ctx.lineTo(balls[0].x+(dragStart.x-dragNow.x)*2,balls[0].y+(dragStart.y-dragNow.y)*2);ctx.strokeStyle='#ffb34e';ctx.lineWidth=3;ctx.setLineDash([8,7]);ctx.stroke();ctx.setLineDash([]);}
+const API = "/.netlify/functions/game";
+const playerId =
+  sessionStorage.getItem("galacticPlayerId") || crypto.randomUUID();
+sessionStorage.setItem("galacticPlayerId", playerId);
+let game = null,
+  etag = null,
+  poller = null,
+  dragging = false,
+  dragStart = null,
+  dragNow = null;
+let balls = [],
+  animating = false;
+const canvas = $("table"),
+  ctx = canvas.getContext("2d");
+const W = 1000,
+  H = 540,
+  bounds = { l: 66, r: 934, t: 66, b: 474 },
+  R = 13;
+const colors = [
+  "#f7df42",
+  "#3c8fe8",
+  "#e84b50",
+  "#8c56d9",
+  "#f28c36",
+  "#42c7a2",
+  "#b84d9b",
+  "#25252d",
+  "#f4f0e9",
+  "#e9bb39",
+  "#4c86d7",
+  "#d84b50",
+  "#8d58d1",
+  "#e88738",
+  "#45b99a"
+];
+const say = (id, msg) => ($(id).textContent = msg);
+const code = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+function setupRack() {
+  balls = [];
+  const cue = {
+    id: 0,
+    x: 260,
+    y: 270,
+    vx: 0,
+    vy: 0,
+    color: "#fff",
+    active: true
+  };
+  balls.push(cue);
+  let n = 1;
+  for (let row = 0; row < 5; row++)
+    for (let col = 0; col <= row; col++) {
+      balls.push({
+        id: n,
+        x: 690 + row * 24,
+        y: 270 + (col - row / 2) * 28,
+        vx: 0,
+        vy: 0,
+        color: colors[(n - 1) % colors.length],
+        active: true
+      });
+      n++;
+    }
+  draw();
 }
-function roundRect(c,x,y,w,h,r){c.beginPath();c.roundRect(x,y,w,h,r);}
-function point(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};}
-canvas.addEventListener('pointerdown',e=>{if(!game||game.status!=='active'||game.currentPlayerId!==playerId||animating)return;const p=point(e),cue=balls[0];if(cue.active&&Math.hypot(p.x-cue.x,p.y-cue.y)<35){dragging=true;dragStart=p;dragNow=p;canvas.setPointerCapture(e.pointerId);draw();}});
-canvas.addEventListener('pointermove',e=>{if(dragging){dragNow=point(e);draw();}});
-canvas.addEventListener('pointerup',async()=>{if(!dragging)return;dragging=false;const dx=dragStart.x-dragNow.x,dy=dragStart.y-dragNow.y;const power=Math.min(18,Math.hypot(dx,dy)*.12);if(power>1){await shoot(dx,dy,power);}dragStart=dragNow=null;draw();});
-async function shoot(dx,dy,power){const cue=balls[0];cue.vx=dx/Math.hypot(dx,dy)*power;cue.vy=dy/Math.hypot(dx,dy)*power;animating=true;let pocketed=[];let steps=0;await new Promise(resolve=>{const tick=()=>{steps++;let moving=false;for(const b of balls){if(!b.active)continue;b.x+=b.vx;b.y+=b.vy;b.vx*=.985;b.vy*=.985;if(Math.abs(b.vx)+Math.abs(b.vy)>.12)moving=true;else b.vx=b.vy=0;if(b.x<bounds.l+R||b.x>bounds.r-R){b.vx*=-.86;b.x=Math.max(bounds.l+R,Math.min(bounds.r-R,b.x));}if(b.y<bounds.t+R||b.y>bounds.b-R){b.vy*=-.86;b.y=Math.max(bounds.t+R,Math.min(bounds.b-R,b.y));}}
- for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){const a=balls[i],b=balls[j];if(!a.active||!b.active)continue;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy);if(d>0&&d<R*2){const nx=dx/d,ny=dy/d,rel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;if(rel>0){a.vx-=rel*nx;b.vx+=rel*nx;a.vy-=rel*ny;b.vy+=rel*ny;}const overlap=(R*2-d)/2;a.x-=nx*overlap;a.y-=ny*overlap;b.x+=nx*overlap;b.y+=ny*overlap;}}
- for(const b of balls){if(!b.active)continue;for(const [px,py] of [[42,42],[500,38],[958,42],[42,498],[500,502],[958,498]])if(Math.hypot(b.x-px,b.y-py)<28){b.active=false;if(b.id)pocketed.push(b.id);}}
- draw();if(!moving||steps>700){resolve();return;}requestAnimationFrame(tick);};requestAnimationFrame(tick);});animating=false;
- const foul=!pocketed.length;const points=pocketed.length;try{await post({action:'shot',roomId:game.roomId,playerId,points,foul,pocketed,note:`${pocketed.length} ball(s) pocketed`});say('matchMessage',foul?'No balls pocketed — foul recorded.':`${points} point(s) scored.`);}catch(err){say('matchMessage',err.message);}if(!balls[0].active){balls[0]={id:0,x:260,y:270,vx:0,vy:0,color:'#fff',active:true};} }
-async function post(payload){const res=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});const data=await res.json();if(!res.ok)throw new Error(data.error||'Game request failed');if(data.game){game=data.game;etag=data.etag||etag;render();}return data;}
-async function refresh(){if(!game)return;try{const res=await fetch(`${API}?room=${game.roomId}`,{cache:'no-store'});const data=await res.json();if(res.ok){game=data.game;etag=data.etag;render();}}catch{}}
-function render(){if(!game)return;$('lobby').classList.add('hidden');$('match').classList.remove('hidden');$('roomLabel').textContent=game.roomId;$('matchTitle').textContent=`${game.mode.toUpperCase()} SHOWDOWN`;$('roundLabel').textContent=`ROUND ${Math.min(game.round,3)} / 3`;
- const [a,b]=game.players; $('scoreboard').innerHTML=`<div class="player ${game.currentPlayerId===a.id?'active':''}"><strong>${escapeHTML(a.name)}${a.id===playerId?' (YOU)':''}</strong><div class="points">${a.score}</div><small>${a.roundsWon} ROUND WINS</small></div><div class="versus">VS</div><div class="player ${b&&game.currentPlayerId===b.id?'active':''}"><strong>${b?escapeHTML(b.name):'WAITING FOR PLAYER'}</strong><div class="points">${b?b.score:'—'}</div><small>${b?b.roundsWon:0} ROUND WINS</small></div>`;
- say('turnLabel',game.status==='waiting'?'WAITING FOR OPPONENT':game.status==='complete'?'MATCH COMPLETE':game.currentPlayerId===playerId?'YOUR TURN':'OPPONENT’S TURN');$('endRound').disabled=game.status!=='active';$('endRound').textContent=game.round===3?'FINISH MATCH':'END ROUND';
- if(game.status==='waiting')say('matchMessage','Share the room code. Your opponent can join from another device.');else if(game.status==='active')say('matchMessage',game.currentPlayerId===playerId?'Your shot. Drag back from the cue ball and release.':'Waiting for your opponent to shoot.');else showResults();}
-function showResults(){$('results').classList.remove('hidden');const winner=game.players.find(p=>p.id===game.winnerId);$('winnerTitle').textContent=winner?`${winner.name.toUpperCase()} WINS THE GALAXY`:'THE MATCH IS TIED';$('roundResults').innerHTML=`<table><thead><tr><th>ROUND</th><th>PLAYER 1</th><th>PLAYER 2</th></tr></thead><tbody>${game.rounds.map(r=>`<tr><td>${r.round}</td><td>${r.totals[0].points}</td><td>${r.totals[1].points}</td></tr>`).join('')}</tbody></table><p>${game.players.map(p=>`${escapeHTML(p.name)}: ${p.score} points · ${p.roundsWon} round wins`).join(' &nbsp; | &nbsp; ')}</p>`;}
-function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-$('createBtn').onclick=async()=>{try{say('lobbyMessage','Creating your arena...');const roomId=code();await post({action:'create',roomId,playerId,playerName:$('playerName').value,mode:$('mode').value});setupRack();startPolling();}catch(e){say('lobbyMessage',e.message);}};
-$('joinBtn').onclick=async()=>{try{const roomId=$('roomCode').value.trim().toUpperCase();if(!roomId)throw Error('Enter a room code.');const data=await post({action:'join',roomId,playerId,playerName:$('playerName').value});setupRack();startPolling();}catch(e){say('lobbyMessage',e.message);}};
-$('copyRoom').onclick=async()=>{await navigator.clipboard.writeText(game.roomId);$('copyRoom').textContent='COPIED';setTimeout(()=>$('copyRoom').textContent='COPY',1200);};
-$('endRound').onclick=async()=>{try{await post({action:'finish-round',roomId:game.roomId,playerId});if(game.status==='active')setupRack();}catch(e){say('matchMessage',e.message);}};
-$('resetRack').onclick=()=>setupRack();$('backLobby').onclick=()=>{clearInterval(poller);game=null;$('results').classList.add('hidden');$('match').classList.add('hidden');$('lobby').classList.remove('hidden');};
-function startPolling(){clearInterval(poller);poller=setInterval(refresh,1800);}
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#4a205f";
+  roundRect(ctx, 14, 14, W - 28, H - 28, 28);
+  ctx.fill();
+  ctx.fillStyle = "#176b58";
+  roundRect(ctx, 42, 42, W - 84, H - 84, 20);
+  ctx.fill();
+  ctx.strokeStyle = "#8cdbb9";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(54, 54, W - 108, H - 108);
+  ctx.fillStyle = "#080817";
+  [
+    [42, 42],
+    [500, 38],
+    [958, 42],
+    [42, 498],
+    [500, 502],
+    [958, 498]
+  ].forEach(([x, y]) => {
+    ctx.beginPath();
+    ctx.arc(x, y, 27, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#c5a4ff";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  });
+  for (const b of balls) {
+    if (!b.active) continue;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, R, 0, Math.PI * 2);
+    ctx.fillStyle = b.color;
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff99";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (b.id) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#fff";
+      ctx.fill();
+      ctx.fillStyle = "#151020";
+      ctx.font = "bold 8px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(b.id, b.x, b.y);
+    }
+  }
+  const cue = balls[0];
+  if (cue?.active && !animating) {
+    ctx.beginPath();
+    ctx.arc(cue.x, cue.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+  }
+  if (dragging && dragStart && dragNow) {
+    ctx.beginPath();
+    ctx.moveTo(balls[0].x, balls[0].y);
+    ctx.lineTo(
+      balls[0].x + (dragStart.x - dragNow.x) * 2,
+      balls[0].y + (dragStart.y - dragNow.y) * 2
+    );
+    ctx.strokeStyle = "#ffb34e";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 7]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.roundRect(x, y, w, h, r);
+}
+function point(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: ((e.clientX - r.left) * W) / r.width,
+    y: ((e.clientY - r.top) * H) / r.height
+  };
+}
+canvas.addEventListener("pointerdown", (e) => {
+  if (
+    !game ||
+    game.status !== "active" ||
+    game.currentPlayerId !== playerId ||
+    animating
+  )
+    return;
+  const p = point(e),
+    cue = balls[0];
+  if (cue.active && Math.hypot(p.x - cue.x, p.y - cue.y) < 35) {
+    dragging = true;
+    dragStart = p;
+    dragNow = p;
+    canvas.setPointerCapture(e.pointerId);
+    draw();
+  }
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (dragging) {
+    dragNow = point(e);
+    draw();
+  }
+});
+canvas.addEventListener("pointerup", async () => {
+  if (!dragging) return;
+  dragging = false;
+  const dx = dragStart.x - dragNow.x,
+    dy = dragStart.y - dragNow.y;
+  const power = Math.min(18, Math.hypot(dx, dy) * 0.12);
+  if (power > 1) {
+    await shoot(dx, dy, power);
+  }
+  dragStart = dragNow = null;
+  draw();
+});
+async function shoot(dx, dy, power) {
+  const cue = balls[0];
+  cue.vx = (dx / Math.hypot(dx, dy)) * power;
+  cue.vy = (dy / Math.hypot(dx, dy)) * power;
+  animating = true;
+  let pocketed = [];
+  let steps = 0;
+  await new Promise((resolve) => {
+    const tick = () => {
+      steps++;
+      let moving = false;
+      for (const b of balls) {
+        if (!b.active) continue;
+        b.x += b.vx;
+        b.y += b.vy;
+        b.vx *= 0.985;
+        b.vy *= 0.985;
+        if (Math.abs(b.vx) + Math.abs(b.vy) > 0.12) moving = true;
+        else b.vx = b.vy = 0;
+        if (b.x < bounds.l + R || b.x > bounds.r - R) {
+          b.vx *= -0.86;
+          b.x = Math.max(bounds.l + R, Math.min(bounds.r - R, b.x));
+        }
+        if (b.y < bounds.t + R || b.y > bounds.b - R) {
+          b.vy *= -0.86;
+          b.y = Math.max(bounds.t + R, Math.min(bounds.b - R, b.y));
+        }
+      }
+      for (let i = 0; i < balls.length; i++)
+        for (let j = i + 1; j < balls.length; j++) {
+          const a = balls[i],
+            b = balls[j];
+          if (!a.active || !b.active) continue;
+          const dx = b.x - a.x,
+            dy = b.y - a.y,
+            d = Math.hypot(dx, dy);
+          if (d > 0 && d < R * 2) {
+            const nx = dx / d,
+              ny = dy / d,
+              rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+            if (rel > 0) {
+              a.vx -= rel * nx;
+              b.vx += rel * nx;
+              a.vy -= rel * ny;
+              b.vy += rel * ny;
+            }
+            const overlap = (R * 2 - d) / 2;
+            a.x -= nx * overlap;
+            a.y -= ny * overlap;
+            b.x += nx * overlap;
+            b.y += ny * overlap;
+          }
+        }
+      for (const b of balls) {
+        if (!b.active) continue;
+        for (const [px, py] of [
+          [42, 42],
+          [500, 38],
+          [958, 42],
+          [42, 498],
+          [500, 502],
+          [958, 498]
+        ])
+          if (Math.hypot(b.x - px, b.y - py) < 28) {
+            b.active = false;
+            if (b.id) pocketed.push(b.id);
+          }
+      }
+      draw();
+      if (!moving || steps > 700) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  animating = false;
+  const foul = !pocketed.length;
+  const points = pocketed.length;
+  try {
+    await post({
+      action: "shot",
+      roomId: game.roomId,
+      playerId,
+      points,
+      foul,
+      pocketed,
+      note: `${pocketed.length} ball(s) pocketed`
+    });
+    say(
+      "matchMessage",
+      foul ? "No balls pocketed — foul recorded." : `${points} point(s) scored.`
+    );
+  } catch (err) {
+    say("matchMessage", err.message);
+  }
+  if (!balls[0].active) {
+    balls[0] = {
+      id: 0,
+      x: 260,
+      y: 270,
+      vx: 0,
+      vy: 0,
+      color: "#fff",
+      active: true
+    };
+  }
+}
+async function post(payload) {
+  const res = await fetch(API, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Game request failed");
+  if (data.game) {
+    game = data.game;
+    etag = data.etag || etag;
+    render();
+  }
+  return data;
+}
+async function refresh() {
+  if (!game) return;
+  try {
+    const res = await fetch(`${API}?room=${game.roomId}`, {
+      cache: "no-store"
+    });
+    const data = await res.json();
+    if (res.ok) {
+      game = data.game;
+      etag = data.etag;
+      render();
+    }
+  } catch {}
+}
+function render() {
+  if (!game) return;
+  $("lobby").classList.add("hidden");
+  $("match").classList.remove("hidden");
+  $("roomLabel").textContent = game.roomId;
+  $("matchTitle").textContent = `${game.mode.toUpperCase()} SHOWDOWN`;
+  $("roundLabel").textContent = `ROUND ${Math.min(game.round, 3)} / 3`;
+  const [a, b] = game.players;
+  $("scoreboard").innerHTML =
+    `<div class="player ${game.currentPlayerId === a.id ? "active" : ""}"><strong>${escapeHTML(a.name)}${a.id === playerId ? " (YOU)" : ""}</strong><div class="points">${a.score}</div><small>${a.roundsWon} ROUND WINS</small></div><div class="versus">VS</div><div class="player ${b && game.currentPlayerId === b.id ? "active" : ""}"><strong>${b ? escapeHTML(b.name) : "WAITING FOR PLAYER"}</strong><div class="points">${b ? b.score : "—"}</div><small>${b ? b.roundsWon : 0} ROUND WINS</small></div>`;
+  say(
+    "turnLabel",
+    game.status === "waiting"
+      ? "WAITING FOR OPPONENT"
+      : game.status === "complete"
+        ? "MATCH COMPLETE"
+        : game.currentPlayerId === playerId
+          ? "YOUR TURN"
+          : "OPPONENT’S TURN"
+  );
+  $("endRound").disabled = game.status !== "active";
+  $("endRound").textContent = game.round === 3 ? "FINISH MATCH" : "END ROUND";
+  if (game.status === "waiting")
+    say(
+      "matchMessage",
+      "Share the room code. Your opponent can join from another device."
+    );
+  else if (game.status === "active")
+    say(
+      "matchMessage",
+      game.currentPlayerId === playerId
+        ? "Your shot. Drag back from the cue ball and release."
+        : "Waiting for your opponent to shoot."
+    );
+  else showResults();
+}
+function showResults() {
+  $("results").classList.remove("hidden");
+  const winner = game.players.find((p) => p.id === game.winnerId);
+  $("winnerTitle").textContent = winner
+    ? `${winner.name.toUpperCase()} WINS THE GALAXY`
+    : "THE MATCH IS TIED";
+  $("roundResults").innerHTML =
+    `<table><thead><tr><th>ROUND</th><th>PLAYER 1</th><th>PLAYER 2</th></tr></thead><tbody>${game.rounds.map((r) => `<tr><td>${r.round}</td><td>${r.totals[0].points}</td><td>${r.totals[1].points}</td></tr>`).join("")}</tbody></table><p>${game.players.map((p) => `${escapeHTML(p.name)}: ${p.score} points · ${p.roundsWon} round wins`).join(" &nbsp; | &nbsp; ")}</p>`;
+}
+function escapeHTML(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ]
+  );
+}
+$("createBtn").onclick = async () => {
+  try {
+    say("lobbyMessage", "Creating your arena...");
+    const roomId = code();
+    await post({
+      action: "create",
+      roomId,
+      playerId,
+      playerName: $("playerName").value,
+      mode: $("mode").value
+    });
+    setupRack();
+    startPolling();
+  } catch (e) {
+    say("lobbyMessage", e.message);
+  }
+};
+$("joinBtn").onclick = async () => {
+  try {
+    const roomId = $("roomCode").value.trim().toUpperCase();
+    if (!roomId) throw Error("Enter a room code.");
+    const data = await post({
+      action: "join",
+      roomId,
+      playerId,
+      playerName: $("playerName").value
+    });
+    setupRack();
+    startPolling();
+  } catch (e) {
+    say("lobbyMessage", e.message);
+  }
+};
+$("copyRoom").onclick = async () => {
+  await navigator.clipboard.writeText(game.roomId);
+  $("copyRoom").textContent = "COPIED";
+  setTimeout(() => ($("copyRoom").textContent = "COPY"), 1200);
+};
+$("endRound").onclick = async () => {
+  try {
+    await post({ action: "finish-round", roomId: game.roomId, playerId });
+    if (game.status === "active") setupRack();
+  } catch (e) {
+    say("matchMessage", e.message);
+  }
+};
+$("resetRack").onclick = () => setupRack();
+$("backLobby").onclick = () => {
+  clearInterval(poller);
+  game = null;
+  $("results").classList.add("hidden");
+  $("match").classList.add("hidden");
+  $("lobby").classList.remove("hidden");
+};
+function startPolling() {
+  clearInterval(poller);
+  poller = setInterval(refresh, 1800);
+}
 setupRack();
